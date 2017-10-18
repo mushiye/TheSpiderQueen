@@ -1,11 +1,14 @@
 # encoding=utf-8
-import requests, sys
+import requests, sys, re
 from bs4 import BeautifulSoup
+import collections
+import os
+import time
 
 """
-类说明:下载《笔趣看》网小说《一念永恒》
+类说明:下载《笔趣看》网小说: url:http://www.biqukan.com/
 Parameters:
-    无
+    target - 《笔趣看》网指定的小说目录地址(string)
 Returns:
     无
 Modify:
@@ -13,45 +16,73 @@ Modify:
 """
 
 class downloader(object):
-    def __init__(self):
-        self.server = 'http://www.biqukan.com/'
-        self.target = 'http://www.biqukan.com/1_1094/'
-        self.names = []     #存放章节名
-        self.urls = []       #存放章节链接
-        self.nums = 0       #章节数
+    def __init__(self, target):
+        self.__target_url = target
+        self.__head = {'User-Agent':'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36'}
     
     """
     函数说明:获取下载链接
     Parameters:
         无
     Returns:
-        无
+        novel_name + '.txt' - 保存的小说名(string)
+        numbers - 章节数(int)
+        download_dict - 保存章节名称和下载链接的字典(dict)
     Modify:
         2017-10-18
     """
     def get_download_url(self):
-        req = requests.get(url= self.target)
-        html = req.text
-        div_bf = BeautifulSoup(html, "lxml")
-        div = div_bf.find_all('div', class_='listmain')
-        a_bf = BeautifulSoup(str(div[0]))
-        a = a_bf.find_all('a')
-        self.nums = len(a[15:])
-        for each in a[15:]:
-            self.names.append(each.string)
-            self.urls.append(self.server + each.get('href'))
+        # self.server = 'http://www.biqukan.com/'
+        # self.target = 'http://www.biqukan.com/1_1094/'
+        # self.names = []     #存放章节名
+        # self.urls = []       #存放章节链接
+        # self.nums = 0       #章节数
+        
+        # re.IGNORECASE 忽略大小写
+        charter = re.compile(u'[第弟](.+)章', re.IGNORECASE)
+        target_req = requests.get(url= self.__target_url, headers = self.__head)
+        target_html = target_req.text
+        listmain_soup = BeautifulSoup(target_html, 'lxml')
+        chapters = listmain_soup.find_all('div', class_='listmain')
+        download_soup = BeautifulSoup(str(chapters), 'lxml')
+        # 将 <dt>《xxx》最新章节列表</dt> 分割成两个字符串，然后取标题
+        novel_name = str(download_soup.dl.dt).split("》")[0][5:]
+        flag_name = "《" + novel_name + "》" + "正文卷"
+        # numbers = (len(download_soup.dl.contents) - 1) /2 - 8
+        # 建立一个键值有序排列的字典实例
+        download_dict = collections.OrderedDict()
+        begin_flag = False
+        numbers = 1
+        for child in download_soup.dl.children:
+            if child != '\n':
+                if child.string == u"%s" % flag_name:
+                    begin_flag = True
+                if begin_flag == True and child.a != None:
+                    download_url = "http://www.biqukan.com" + child.a.get('href')
+                    download_name = child.string
+                    # 获取的章节名处理，分割成含两个字符串的列表
+                    # 例：[第一章 他叫白小纯] 变为 ['第一', ' 他叫白小纯']
+                    names = str(download_name).split('章')
+                    # 正则表达式获取中间的章节数，charter = re.compile(u'[第弟](.+)章', re.IGNORECASE)
+                    name = charter.findall(names[0] + '章')
+                    if name:
+                        # 重新统一命名
+                        download_dict['第' + str(numbers) + '章' + names[1]] = download_url
+                        numbers += 1
+                
+        return novel_name + '.txt', numbers, download_dict
     
     """
-    函数说明:获取章节内容
+    函数说明：爬取章节内容
     Parameters:
-        target - 下载连接(string)
+        url - 下载连接(string)
     Returns:
-        texts - 章节内容(string)
+        soup_text - 章节内容(string)
     Modify:
         2017-10-18
     """
-    def get_contents(self, target):
-        response = requests.get(url = target)
+    def get_contents(self, url):
+        response = requests.get(url = url, headers = self.__head)
         html = response.text
         bf = BeautifulSoup(html, "lxml")
         texts = bf.find_all('div', class_ = 'showtxt')
@@ -59,8 +90,9 @@ class downloader(object):
         # 提取匹配结果后，使用text属性，提取文本内容，滤除br标签。
         # 随后使用replace方法，剔除空格，替换为回车进行分段。
         # 在html中是用来表示空格的。replace(‘\xa0’*8,'\n\n')就是去掉下图的八个空格符号，并用回车代替：
-        texts = texts[0].text.replace('\xa0' * 8, '\n\n')
-        return texts
+        # texts = texts[0].text.replace('\xa0' * 8, '\n\n')
+        soup_text = BeautifulSoup(str(texts), 'lxml').div.text.replace('\xa0', '')
+        return soup_text
     
     """
     函数说明:将爬取的文章内容写入文件
@@ -77,14 +109,35 @@ class downloader(object):
         write_flag = True
         with open(path, 'a', encoding='utf-8') as f:
             f.write(name + '\n')
-            f.writelines(text)
+            for each in text:
+                if each == 'h':
+                    write_flag = False
+                if write_flag == True and each != ' ':
+                    f.writelines(each)
+                if write_flag == True and each == '\r':
+                    f.write('\n')
             f.write('\n\n')
     
 if __name__ == "__main__":
-    dl = downloader()
-    dl.get_download_url()
-    print('《一年永恒》开始下载：')
-    for i in range(dl.nums):
-        dl.writer(dl.names[i], '一念永恒.txt', dl.get_contents(dl.urls[i]))
-        print("  已下载:%.3f%%" %  float(i/dl.nums) + '\r')
-    print('《一年永恒》下载完成')
+    print("\n\t\t欢迎使用《笔趣看》小说下载小工具\n\n\t\t作者:小果子\t时间:2017-10-18\n")
+    print("*************************************************************************")
+    
+    # 小说地址
+    target_url = str(input("请输入小说目录下载地址：\n"))
+    # 实例化下载类
+    d = downloader(target = target_url)
+    name, numbers, url_dict = d.get_download_url()
+    # 若当前目录已存在该文件，则删除
+    if name in os.listdir('.'):
+        os.remove(name)
+    index = 1
+    # 下载中
+    print('《%s》下载中：' % name[:-4])
+    for key, value in url_dict.items():
+        d.writer(key, name, d.get_contents(value))
+        sys.stdout.write("已下载:%.3f%%" % float(index / numbers) + '\r')
+        sys.stdout.flush()
+        index += 1
+        time.sleep(0.1)
+
+    print('《%s》下载完成！' % name[:-4])
