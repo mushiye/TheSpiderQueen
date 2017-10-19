@@ -39,7 +39,7 @@ class downloader(object):
         # self.nums = 0       #章节数
         
         # re.IGNORECASE 忽略大小写
-        charter = re.compile(u'[第弟](.+)章', re.IGNORECASE)
+        charter = re.compile(u'[第弟](.+)[章掌]', re.IGNORECASE)
         target_req = requests.get(url= self.__target_url, headers = self.__head)
         target_html = target_req.text
         listmain_soup = BeautifulSoup(target_html, 'lxml')
@@ -62,9 +62,9 @@ class downloader(object):
                     download_name = child.string
                     # 获取的章节名处理，分割成含两个字符串的列表
                     # 例：[第一章 他叫白小纯] 变为 ['第一', ' 他叫白小纯']
-                    names = str(download_name).split('章')
+                    names = str(download_name).split(' ')
                     # 正则表达式获取中间的章节数，charter = re.compile(u'[第弟](.+)章', re.IGNORECASE)
-                    name = charter.findall(names[0] + '章')
+                    name = charter.findall(names[0])
                     if name:
                         # 重新统一命名
                         download_dict['第' + str(numbers) + '章' + names[1]] = download_url
@@ -138,6 +138,6 @@ if __name__ == "__main__":
         sys.stdout.write("已下载:%.3f%%" % float(index / numbers) + '\r')
         sys.stdout.flush()
         index += 1
-        time.sleep(0.1)
+        time.sleep(1)
 
     print('《%s》下载完成！' % name[:-4])
